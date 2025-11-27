@@ -1,0 +1,89 @@
+/* Full page dashboard */
+.dashboard {
+  min-height: 100vh;
+  padding: 80px 20px 20px; /* Padding for navbar space */
+  background: linear-gradient(135deg, #0a0f1e, #1a2a3d);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: 'Poppins', sans-serif;
+  color: white;
+}
+
+/* Title */
+.dashboard-title {
+  font-size: 2.5rem;
+  font-weight: bold;
+  margin-bottom: 30px;
+  background: linear-gradient(90deg, #ffcc00, #ff9900);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0px 0px 15px rgba(255, 204, 0, 0.6);
+}
+
+/* Cards container */
+.cards-container {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-bottom: 30px;
+}
+
+/* Card styles */
+.card {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 215, 0, 0.3);
+  border-radius: 16px;
+  padding: 20px;
+  min-width: 200px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.card:hover {
+  transform: translateY(-5px) scale(1.02);
+  box-shadow: 0 8px 30px rgba(255, 215, 0, 0.4);
+}
+
+.card h2 {
+  font-size: 1.3rem;
+  color: gold;
+}
+
+/* Active card */
+.card.active {
+  border: 1px solid gold;
+  box-shadow: 0 8px 25px rgba(255, 215, 0, 0.6);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Content area */
+.content-area {
+  width: 100%;
+  max-width: 800px;
+  min-height: 300px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 16px;
+  padding: 20px;
+  border: 1px solid rgba(255, 215, 0, 0.3);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(12px);
+  overflow-y: auto;
+}
+
+/* Scrollbar styling */
+.content-area::-webkit-scrollbar {
+  width: 8px;
+}
+
+.content-area::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.content-area::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #ffcc00, #ff9900);
+  border-radius: 10px;
+}

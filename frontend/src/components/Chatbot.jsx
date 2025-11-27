@@ -1,37 +1,80 @@
-import React, { useState } from "react";
-import { sendMessage } from "../services/api";
+import React, { useState, useEffect, useRef } from "react";
+import "../styles.css";
 
 const Chatbot = () => {
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState(() => {
+    const saved = localStorage.getItem("chatMessages");
+    return saved ? JSON.parse(saved) : [];
+  });
   const [input, setInput] = useState("");
+  const chatBoxRef = useRef(null); // ✅ Ref for chat container
 
-  const handleSend = async () => {
-    if (!input) return;
-    const userMessage = { sender: "user", text: input };
-    setMessages([...messages, userMessage]);
+  // Save messages to localStorage
+  useEffect(() => {
+    localStorage.setItem("chatMessages", JSON.stringify(messages));
+    // Auto-scroll whenever messages update
+    if (chatBoxRef.current) {
+      chatBoxRef.current.scrollTo({
+        top: chatBoxRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    }
+  }, [messages]);
+
+  const sendMessage = async () => {
+    if (!input.trim()) return;
+
+    const newMessages = [...messages, { text: input, sender: "user" }];
+    setMessages(newMessages);
     setInput("");
 
     try {
-      const res = await sendMessage(input);
-      const botMessage = { sender: "bot", text: res.data.reply };
-      setMessages(prev => [...prev, botMessage]);
-    } catch (err) {
-      console.error(err);
+      const token = localStorage.getItem("token");
+      const res = await fetch("http://localhost:5000/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({ message: input }),
+      });
+
+      const data = await res.json();
+      setMessages((prev) => [
+        ...prev,
+        { text: data.reply || "No response", sender: "bot" },
+      ]);
+    } catch (error) {
+      setMessages((prev) => [
+        ...prev,
+        { text: "Error connecting to chatbot", sender: "bot" },
+      ]);
     }
   };
 
   return (
-    <div style={{ padding: "20px", border: "1px solid #ccc", maxWidth: "500px", margin: "auto" }}>
-      <h3>Smart Healthcare Chatbot</h3>
-      <div style={{ minHeight: "200px", border: "1px solid #eee", padding: "10px", marginBottom: "10px", overflowY: "auto" }}>
-        {messages.map((msg, i) => (
-          <div key={i} style={{ textAlign: msg.sender === "user" ? "right" : "left", margin: "5px 0" }}>
-            <b>{msg.sender === "user" ? "You" : "Bot"}:</b> {msg.text}
+    <div className="chat-container">
+      <h2 className="chat-title">💬 Smart Healthcare Assistant</h2>
+      <div className="chat-box" ref={chatBoxRef} style={{ overflowY: "auto", maxHeight: "400px" }}>
+        {messages.map((msg, idx) => (
+          <div key={idx} className={`message ${msg.sender}`}>
+            {msg.text}
           </div>
         ))}
       </div>
-      <input type="text" value={input} onChange={e => setInput(e.target.value)} placeholder="Type your message..." />
-      <button onClick={handleSend}>Send</button>
+      <div className="chat-input-container">
+        <input
+          className="chat-input"
+          type="text"
+          placeholder="Type your message..."
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+        />
+        <button className="chat-send-btn" onClick={sendMessage}>
+          🚀
+        </button>
+      </div>
     </div>
   );
 };

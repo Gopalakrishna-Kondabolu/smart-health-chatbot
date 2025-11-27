@@ -13,14 +13,17 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// ✅ updated message schema
 const messageSchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-    text: { type: String, required: true },
-    reply: { type: String, required: true }
+    sender: { type: String, enum: ["user", "bot"], required: true },
+    content: { type: String, required: true },
+    sessionId: { type: String, default: null } // ✅ added so server.js can save it
   },
   { timestamps: true }
 );
+
 
 const reminderSchema = new mongoose.Schema(
   {
