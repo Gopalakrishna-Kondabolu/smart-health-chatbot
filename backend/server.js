@@ -6,7 +6,8 @@ import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { User, Message, Reminder } from "./models.js";
-import fetch from "node-fetch"; // for OpenRouter API calls
+import { chatHandler } from "./controllers/chatbotController.js"; 
+import nodemailer from "nodemailer";
 
 dotenv.config();
 
@@ -20,11 +21,12 @@ mongoose
   .then(() => console.log("✅ MongoDB connected"))
   .catch((e) => console.error("❌ Mongo error:", e));
 
-// JWT Auth middleware
+// ✅ JWT Auth middleware (MOVED UP)
 const auth = (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ message: "Unauthorized" });
   try {
+    console.log("JWT VERIFY SECRET:", process.env.JWT_SECRET);
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded; // { userId, email }
     next();
@@ -33,6 +35,8 @@ const auth = (req, res, next) => {
   }
 };
 
+// ✅ Chat route (NOW SAFE)
+app.post("/api/chat", auth, chatHandler);
 // ---------- Auth ----------
 app.post("/api/auth/signup", async (req, res) => {
   try {
@@ -74,6 +78,7 @@ app.post("/api/auth/login", async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: "1d" }
     );
+    console.log("JWT SIGN SECRET:", process.env.JWT_SECRET);
     res.json({ token, user: { name: user.name, email: user.email } });
   } catch (e) {
     res.status(500).json({ message: "Server error" });
@@ -99,177 +104,13 @@ app.get("/api/user/profile", auth, async (req, res) => {
   }
 });
 
-// ---------- Symptom Rules (fallback if AI fails) ----------
-const rules = [
-  {
-    name: "EMERGENCY",
-    keywords: ["chest pain", "severe bleeding", "unconscious", "stroke", "shortness of breath"],
-    response:
-      "⚠️ This may be an emergency. Call your local emergency number immediately or go to the nearest hospital."
-  },
-  {
-    name: "FLU / COLD",
-    keywords: ["fever", "cough", "sore throat", "runny nose", "body ache"],
-    response:
-      "Looks like a viral flu/cold. Stay hydrated, rest, consider paracetamol for fever, and monitor symptoms. If it persists >3–5 days or worsens, consult a doctor."
-  },
-  {
-    name: "MIGRAINE",
-    keywords: ["headache", "nausea", "sensitivity to light", "throbbing"],
-    response:
-      "Symptoms suggest migraine. Rest in a dark quiet room, stay hydrated, consider doctor-advised pain relief. Keep a trigger diary (sleep, stress, foods)."
-  },
-  {
-    name: "GASTROENTERITIS",
-    keywords: ["vomiting", "diarrhea", "stomach pain", "nausea"],
-    response:
-      "May be gastroenteritis. Take ORS, avoid oily/spicy foods, small frequent sips of water. Seek care if blood in stool, high fever, or dehydration."
-  },
-  {
-    name: "SKIN RASH",
-    keywords: ["rash", "itching", "red patches"],
-    response:
-      "For mild rashes: keep area clean and dry, avoid scratching, try hypoallergenic moisturizer. If spreading, painful, or with fever—consult a dermatologist."
-  },
-  {
-    name: "DIABETES RISK",
-    keywords: ["frequent urination", "excessive thirst", "unexplained weight loss", "fatigue"],
-    response:
-      "These can be signs of high blood sugar. Consider a fasting blood sugar test and speak with a physician soon."
-  }
-];
-
-function matchRules(text) {
-  const t = text.toLowerCase();
-  const emergency = rules[0];
-  if (emergency.keywords.some(k => t.includes(k))) return emergency.response;
-
-  let best = { score: 0, resp: null };
-  for (let i = 1; i < rules.length; i++) {
-    const r = rules[i];
-    let score = 0;
-    for (const kw of r.keywords) if (t.includes(kw)) score++;
-    if (score > best.score) best = { score, resp: r.response };
-  }
-  if (best.score > 0) return best.resp;
-
-  if (t.includes("diet") || t.includes("nutrition"))
-    return "General tip: prefer whole foods, fruits/vegetables, adequate protein, and hydrate well. For specific conditions, consult a dietician.";
-  if (t.includes("exercise"))
-    return "Aim for 150 minutes/week moderate activity + 2 days strength training. Start slow and increase gradually.";
-  if (t.includes("covid"))
-    return "If COVID-like symptoms: isolate, test if available, rest, hydrate. Seek care if breathing difficulty/high fever.";
-
-  return "I’m a health assistant, not a doctor. Please describe your symptoms (e.g., 'fever, cough, sore throat') or ask a general health question.";
-}
-
-// ---------- OpenRouter Setup ----------
-async function fetchOpenRouter(message) {
-  try {
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:3000",  // change for production
-        "X-Title": "Smart Healthcare Chatbot"
-      },
-      body: JSON.stringify({
-        model: "meta-llama/llama-3-8b-instruct",  // good free model
-        messages: [
-          { role: "system", content: "You are a helpful healthcare assistant. Keep responses short, clear, and not diagnostic." },
-          { role: "user", content: message }
-        ]
-      })
-    });
-
-    const data = await response.json();
-    return data.choices?.[0]?.message?.content || "Sorry, I couldn’t process that.";
-  } catch (err) {
-    console.error("OpenRouter error:", err);
-    return "⚠️ Error contacting AI service.";
-  }
-}
-// ---------- Chat ----------
-app.post("/api/chat", auth, async (req, res) => {
-  try {
-    const { message, sessionId } = req.body; // optional sessionId for grouping chats
-    if (!message) return res.status(400).json({ message: "No message" });
-
-    // --- Get bot reply (AI first, fallback to rules) ---
-    let reply;
-    try {
-      reply = await fetchOpenRouter(message);
-    } catch (err) {
-      console.error("⚠️ OpenRouter failed, using rules:", err.message);
-      reply = matchRules(message);
-    }
-
-    // --- Save user message ---
-    await Message.create({
-      userId: req.user.userId,
-      sender: "user",
-      content: message,
-      sessionId: sessionId || null
-    });
-
-    // --- Save bot reply ---
-    await Message.create({
-      userId: req.user.userId,
-      sender: "bot",
-      content: reply,
-      sessionId: sessionId || null
-    });
-
-    res.json({ reply });
-  } catch (e) {
-    console.error("Chat error:", e);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-// Fetch all previous chats (for dashboard)
-app.get("/api/chat/history", auth, async (req, res) => {
-  try {
-    const msgs = await Message.find({ userId: req.user.userId })
-      .sort({ createdAt: 1 });
-    res.json(msgs);
-  } catch (e) {
-    console.error("History error:", e);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-// Fetch a specific chat session
-app.get("/api/chat/session/:sessionId", auth, async (req, res) => {
-  try {
-    const msgs = await Message.find({
-      userId: req.user.userId,
-      sessionId: req.params.sessionId
-    }).sort({ createdAt: 1 });
-    res.json(msgs);
-  } catch (e) {
-    console.error("Session history error:", e);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-// Clear chat history for fresh chat page
-app.delete("/api/chat/clear", auth, async (req, res) => {
-  try {
-    await Message.deleteMany({ userId: req.user.userId });
-    res.json({ message: "Chat history cleared" });
-  } catch (e) {
-    console.error("Clear chat error:", e);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
 // ---------- Reminders ----------
 app.post("/api/reminders", auth, async (req, res) => {
   try {
     const { title, time } = req.body;
-    if (!title || !time) return res.status(400).json({ message: "Missing fields" });
+    if (!title || !time)
+      return res.status(400).json({ message: "Missing fields" });
+
     const reminder = await Reminder.create({
       userId: req.user.userId,
       title,
@@ -294,12 +135,12 @@ app.patch("/api/reminders/:id/done", auth, async (req, res) => {
   );
   res.json(r);
 });
-// ---------- Emergency Location ----------
-// POST /api/emergency
+
+// ---------- Emergency ----------
 app.post("/api/emergency", auth, async (req, res) => {
   try {
     const { latitude, longitude } = req.body;
-    if (!latitude || !longitude) 
+    if (!latitude || !longitude)
       return res.status(400).json({ message: "Missing location data" });
 
     // Optional: Save location to DB (you can create an Emergency model)
@@ -323,8 +164,35 @@ app.post("/api/emergency", auth, async (req, res) => {
   }
 });
 
+app.get("/api/test-email", async (req, res) => {
+  try {
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
+    await transporter.sendMail({
+      from: `"Smart Healthcare Bot" <${process.env.EMAIL_USER}>`,
+      to: process.env.EMAIL_USER, // send to yourself
+      subject: "✅ Email Test Successful",
+      text: "This is a test email from Smart Healthcare Chatbot.",
+    });
+
+    res.json({ message: "Email sent successfully!" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Email failed" });
+    console.error("EMAIL ERROR:", err);
+  }
+});
+
 // Root
-app.get("/", (_req, res) => res.send("✅ Smart Healthcare Chatbot API is running."));
+app.get("/", (_req, res) =>
+  res.send("✅ Smart Healthcare Chatbot API is running.")
+);
 
 app.listen(process.env.PORT || 5000, () =>
   console.log(`🚀 API on http://localhost:${process.env.PORT || 5000}`)
